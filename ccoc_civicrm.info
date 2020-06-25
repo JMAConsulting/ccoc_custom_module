@@ -1,0 +1,3 @@
+name = Canadian Children's Opera Customizations
+description = This module contains various customizations related to the CCOC Drupal interface 
+core = 7.x

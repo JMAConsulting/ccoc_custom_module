@@ -1,0 +1,135 @@
+<?php
+
+function ccoc_civicrm_block_view_alter(&$data, $block) {
+  $current_url = request_uri();
+  if ($current_url == '/user/' && $block->module == 'block' && $block->delta == 5) {
+    $logo_path = drupal_get_path('module', 'ccoc_civicrm') . '/logos/';
+    $logo_path = '/' . $logo_path . 'CiviCRM.png';
+    $data['content'] = '<p class="rtecenter"><a href="/"><img alt="" src="' . $logo_path . '" /></a></p>';
+  }
+}
+
+function ccoc_civicrm_user_login(&$edit, $account) {
+  if ($account->uid != 1) {
+    $edit['redirect'] = 'civicrm/dashboard';
+  }
+}
+
+function ccoc_civicrm_preprocess_page (&$variables) {
+  if (in_array(drupal_get_path_alias(current_path()), ['content/new-chorister-application.html', 'content/membership-registration-form.html'])) {
+    // add css here
+   drupal_add_css(drupal_get_path('module','ccoc_civicrm'). '/css/ccoc_civicrm.css');
+  }
+}
+
+/**
+ *
+ * Add CiviCRM contact info to submission objects.
+ *
+ **/
+function ccoc_civicrm_webform_submission_load(&$submissions) {
+  if (empty($submissions)) {
+    return;
+  }
+  $db = db_query('SELECT * FROM {webform_civicrm_submissions} WHERE sid IN (' . implode(',', array_keys($submissions)) . ')');
+  $contacts = array();
+  foreach ($db as $row) {
+    $data = unserialize($row->civicrm_data) + array('contact' => array());
+    if ($row->contact_id) {
+      foreach (explode('-', trim($row->contact_id, '-')) as $c => $cid) {
+        $data['contact'][$c + 1]['id'] = $cid;
+        $data['contact'][$c + 1]['display_name'] = '';
+        $data['contact'][$c + 1]['first_name'] = '';
+        if ($cid) {
+          $contacts[$cid]['id'] = $cid;
+        }
+      }
+    }
+    $submissions[$row->sid]->civicrm = $data;
+  }
+  if ($contacts) {
+    // Retrieve contact names and add to submission objects
+    civicrm_initialize();
+    $sql = 'SELECT id, display_name, first_name FROM civicrm_contact WHERE id IN (' . implode(',', array_keys($contacts)) . ')';
+
+    $dao = CRM_Core_DAO::executeQuery($sql);
+    while ($dao->fetch()) {
+      $contacts[$dao->id]['display_name'] = $dao->display_name;
+      $contacts[$dao->id]['first_name'] = $dao->first_name;
+
+    }
+    foreach ($submissions as &$s) {
+      foreach ($s->civicrm['contact'] as $key => $val) {
+        if (!empty($s->civicrm['contact'][$key]['id'])) {
+          $s->civicrm['contact'][$key]['display_name'] = $contacts[$s->civicrm['contact'][$key]['id']]['display_name'];
+          $s->civicrm['contact'][$key]['first_name'] = $contacts[$s->civicrm['contact'][$key]['id']]['first_name'];
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 
+ * Implements hook_token_info().
+ *  
+ **/
+function ccoc_civicrm_token_info() {
+  $info['tokens']['submission']['contact-first-name'] = [
+	  'name' => t('Contact\'s First Name'),
+	  'description' => t('The contact\'s first name'),
+	  'dynamic' => TRUE,
+  ];
+  return $info;
+}
+
+  /**
+   *
+   * Implements hook_tokens().
+   *
+   **/
+function ccoc_civicrm_tokens($type, $tokens = '', array $data = [], array $options = []) {
+	if (!_webform_civicrm_isWebformSubmission($type, $data)) {
+	  return [];
+	}
+	$replacedTokens = [];
+	$webformSubmissionData = $data['webform-submission'];
+
+	$contactIdsReplacedTokens = _ccoc_civicrm_replaceParentChildTokens($tokens, $webformSubmissionData);
+	$replacedTokens = array_merge($replacedTokens, $contactIdsReplacedTokens);
+	return $replacedTokens;
+}
+
+/**
+	* Replaces contact-id tokens with civicrm contact IDs
+	*
+	* @param array $tokens
+	* Tokens to process
+	* @param array $webformSubmissionData
+	* Data submitted by the webform
+	*
+	* @return array
+	* List of replaced contact-id tokens replaced with actual contacts IDs
+	*
+  **/
+function _ccoc_civicrm_replaceParentChildTokens($tokens, $webformSubmissionData) {
+	  $replacedTokens = [];
+
+	  $tokenValues = token_find_with_prefix($tokens, 'contact-first-name');
+	  if (!$tokenValues) {
+	    return $replacedTokens;
+	  }
+
+	  foreach ($tokenValues as $entityID => $tokenName) {
+	    $tokenNewValue = '';
+	    if (!empty($webformSubmissionData->civicrm['contact'][$entityID]['first_name'])) {
+	      $contactID = $webformSubmissionData->civicrm['contact'][$entityID]['first_name'];
+	      $tokenNewValue = $contactID;
+	    }
+	    $replacedTokens[$tokenName] = $tokenNewValue;
+	  }
+
+	  return $replacedTokens;
+}
+
+
