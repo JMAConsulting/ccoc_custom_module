@@ -132,4 +132,43 @@ function _ccoc_civicrm_replaceParentChildTokens($tokens, $webformSubmissionData)
 	  return $replacedTokens;
 }
 
+  /**
+   * Implements hook_webform_submission_render_alter().
+   * Add display name to title while viewing a submission.
+   */
+  function ccoc_civicrm_webform_submission_render_alter(&$sub) {
+    $contribution_id = $sub['#submission']->civicrm['contribution'][1]['id'];
+    if (empty($contribution_id)) {
+      return;
+    }
+    civicrm_initialize();
+    $paymentText = "";
+    if (!empty($sub['#submission']->data[26])) {
+      switch($sub['#submission']->data[26][0]) {
+        case 1:
+          $paymentText = "Paid over 2 installments";
+          break;
+        case 2:
+          $paymentText = "Paid 15% deposit";
+          break;
+        case 3:
+          $paymentText = "Paid in full";
+          break;
+        default:
+          break;
+      }
+    }
+    $pan = CRM_Core_DAO::executeQuery("SELECT ft.pan_truncation, ft.card_type_id
+      FROM civicrm_contribution c
+      INNER JOIN civicrm_entity_financial_trxn eft ON eft.entity_id = c.id AND eft.entity_table = 'civicrm_contribution'
+      INNER JOIN civicrm_financial_trxn ft ON ft.id = eft.financial_trxn_id
+      WHERE c.id = %1", [1 => [$contribution_id, 'Integer']])->fetchAll()[0];
+    $cardTypes = CRM_Core_OptionGroup::values('accept_creditcard');
+
+    $paymentText .= " by " . $cardTypes[$pan['card_type_id']] . " ending in " . $pan['pan_truncation'];
+    $sub['civicrm_1_contribution_1_contribution_contribution_page_id']['#markup'] = $paymentText;
+    $sub['civicrm_1_contribution_1_contribution_contribution_page_id']['#title'] = "";
+  }
+
+
 
